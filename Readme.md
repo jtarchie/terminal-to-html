@@ -1,10 +1,11 @@
-![logo](http://buildkite.github.io/terminal-to-html/images/logo.svg)
+# terminal-to-html
+
+> [!NOTE]
+> This is an independent fork of [buildkite/terminal-to-html](https://github.com/buildkite/terminal-to-html). It is not affiliated with or endorsed by Buildkite. The original copyright and MIT license are retained below and in [LICENSE](LICENSE).
 
 Terminal is a Go library for converting arbitrary shell output (with ANSI) into beautifully rendered HTML. See http://en.wikipedia.org/wiki/ANSI_escape_code for more information about ANSI Terminal Control Escape Sequences.
 
 It provides a single command, `terminal-to-html`, that can be used to convert terminal output via STDIN, as well as via a simple web server.
-
-[![GoDoc](https://godoc.org/github.com/buildkite/terminal-to-html?status.svg)](https://godoc.org/github.com/buildkite/terminal-to-html)
 
 ## Usage
 
@@ -54,23 +55,20 @@ Links which contain semicolons can be surrounded by either single or double quot
 
 ## Installation
 
-If you have Go installed you can simply run the following command to install the `terminal-to-html` command into `$GOPATH/bin`:
+With Go installed, build from source into `$GOPATH/bin`:
 
 ```bash
-$ go install github.com/buildkite/terminal-to-html/v3/cmd/terminal-to-html
+$ git clone https://github.com/jtarchie/terminal-to-html
+$ cd terminal-to-html && go install ./cmd/terminal-to-html
 ```
-
-You can also just download the standalone binary from [https://github.com/buildkite/terminal-to-html/releases](https://github.com/buildkite/terminal-to-html/releases)
 
 ## Developing
 
 To get a bash prompt with all the go cross-compilation tools set up for you already:
 
 ```
-$ docker build -t terminal . && docker run -it --rm -v $(pwd):/go/src/github.com/buildkite/terminal-to-html terminal bash
+$ docker build -t terminal . && docker run -it --rm -v $(pwd):/src -w /src terminal bash
 ```
-
-For publishing a release and its binary assets, see [RELEASE.md](RELEASE.md).
 
 ## Benchmarking
 
