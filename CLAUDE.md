@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Go library + CLI (`github.com/jtarchie/terminal-to-html/v3`) converting ANSI terminal output to HTML. Fork of `buildkite/terminal-to-html` (remote `upstream`); merge `upstream/main` to pick up their changes. Keep `LICENSE` and the README license section intact (MIT notice requirement).
+Go library + CLI (`github.com/jtarchie/terminal-to-html/v3`) converting ANSI terminal output to HTML. Originally forked from `buildkite/terminal-to-html`; now independent, no upstream tracking. Keep `LICENSE` and the README license section intact (MIT notice requirement).
 
 ## Commands
 
