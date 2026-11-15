@@ -12,7 +12,7 @@ Go library + CLI (`github.com/jtarchie/terminal-to-html/v3`) converting ANSI ter
 - Bench: `make bench`. Sub-benchmarks `BenchmarkRender/<fixture>` and `BenchmarkStreaming/<fixture>` report MB/s and allocs; `npm.sh` matters most per README. Compare with `benchstat` over `-count 8`; wall time is noisy on a loaded machine, so A/B via interleaved runs of two `go test -c` binaries and trust allocs/op first.
 - Build binary: `make` (tests + `terminal-to-html` binary); cross-compile: `make dist`
 - Try it: `cat fixtures/pikachu.sh.raw | go run ./cmd/terminal-to-html -preview > out.html`
-- No CI in this fork; `Dockerfile` runs `make dist`.
+- CI: `.github/workflows/test.yml` (gofmt check, `go vet`, `go test -race ./...`). `Dockerfile` runs `make dist`.
 
 CSS is `go:embed`ed from `internal/assets/terminal.css`.
 
