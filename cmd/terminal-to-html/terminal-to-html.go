@@ -221,10 +221,11 @@ func process(dst io.Writer, src io.Reader, preview bool, format string, screen *
 
 	// Write what remains in the screen buffer (everything that didn't scroll
 	// out of the top).
+	// Errors land in wc.err, checked below.
 	if format == "plain" {
-		wc.WriteString(screen.AsPlainTextWithTimestamps(screen.Timestamps))
+		_ = screen.RenderPlainText(wc, screen.Timestamps)
 	} else {
-		wc.WriteString(screen.AsHTMLWithTimestamps(screen.Timestamps))
+		_ = screen.RenderHTML(wc, screen.Timestamps)
 	}
 
 	if preview {
@@ -282,6 +283,10 @@ func main() {
 			Value: 400,
 			Usage: "Sets an upper bound on the window width (which may change based on input). Window size mainly affects cursor movement sequences",
 		},
+		&cli.BoolFlag{
+			Name:  "strict",
+			Usage: "Harden for untrusted input: drop inline images, keep only absolute http(s) links",
+		},
 		&cli.IntFlag{
 			Name:  "window-cols",
 			Value: 160,
@@ -301,10 +306,14 @@ func main() {
 		}
 
 		// WithMaxSize last so it clamps, e.g. --buffer-max-lines 50 vs default --window-lines 100.
-		screen, err := terminal.NewScreen(
+		opts := []terminal.ScreenOption{
 			terminal.WithSize(c.Int("window-cols"), c.Int("window-lines")),
 			terminal.WithMaxSize(c.Int("window-max-cols"), c.Int("buffer-max-lines")),
-		)
+		}
+		if c.Bool("strict") {
+			opts = append(opts, terminal.WithStrict())
+		}
+		screen, err := terminal.NewScreen(opts...)
 		if err != nil {
 			return fmt.Errorf("creating screen: %w", err)
 		}

@@ -13,6 +13,10 @@ It provides a single command, `terminal-to-html`, that can be used to convert te
 > `terminal-to-html` is **not** hardened against cross-site scripting (XSS) or other attacks. When
 > run on user-generated content, output should be passed through a HTML sanitizer prior to
 > displaying in a browser.
+>
+> Strict mode (`-strict`, or `terminal.WithStrict()` in Go) narrows the attack surface for
+> untrusted input: inline images are dropped and links are kept only for absolute `http(s)` URLs.
+> Text is always HTML-escaped. It has not been externally audited; sanitize anyway if it matters.
 
 Piping in terminal output via the command line:
 
@@ -26,6 +30,19 @@ Posting terminal content via HTTP:
 terminal-to-html -http=:6060 &
 curl --data-binary "@fixtures/pikachu.sh.raw" http://localhost:6060/terminal > out.html
 ```
+
+From Go, `Screen` is an `io.Writer`; render with `RenderHTML(w, timestamps)` /
+`RenderPlainText(w, timestamps)` to stream output to an `io.Writer` without building it as one
+string (or `AsHTML()` / `AsPlainText()` for a string):
+
+```go
+screen, _ := terminal.NewScreen(terminal.WithStrict())
+io.Copy(screen, src)
+screen.RenderHTML(dst, false)
+```
+
+Clear-screen (`ESC [2J`) pushes the current display into scrollback rather than erasing it, and
+clear-scrollback (`ESC [3J`) is ignored: in a log, history is the point.
 
 For coloring you can use the sample [terminal.css](/internal/assets/terminal.css) stylesheet and wrap the output in an element with class `term-container` (e.g. `<div class="term-container"><!-- terminal output --></div>`).
 

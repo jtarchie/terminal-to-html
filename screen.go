@@ -288,6 +288,7 @@ func (s *Screen) currentLineForWriting() *screenLine {
 
 		// maxLines is in effect, and adding a new line would make the screen
 		// larger than maxLines.
+		cursorIdx := s.top() + s.y
 		// Pass the whole line being scrolled out to ScrollOutFunc if available,
 		// otherwise just scroll out 1 line to nowhere.
 		scrollOutTo := 1
@@ -338,8 +339,8 @@ func (s *Screen) currentLineForWriting() *screenLine {
 		}
 		s.screen = append(s.screen[scrollOutTo:], newLine)
 
-		// Since the buffer added 1 line, s.y moves upwards.
-		s.y--
+		// Keep the cursor on the same line as it shifts up the buffer.
+		s.y = cursorIdx - scrollOutTo - s.top()
 	}
 
 	return s.currentLine()
