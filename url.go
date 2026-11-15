@@ -29,3 +29,10 @@ func sanitizeURL(s string) string {
 	// default allow
 	return url.String()
 }
+
+// strictURL reports whether s is an absolute http(s) URL, the only links
+// WithStrict keeps.
+func strictURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}

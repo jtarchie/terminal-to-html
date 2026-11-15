@@ -1,7 +1,9 @@
 package terminal
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"maps"
 	"math"
 	"strconv"
@@ -39,6 +41,11 @@ type Screen struct {
 	// Setting to 0 or negative doesn't enforce a limit.
 	maxColumns int
 
+	// Lines above this index are scrollback even if the window could reach
+	// them: ESC [2J moves it to the end of the buffer so a clear pushes the old
+	// display into history instead of erasing it.
+	windowFloor int
+
 	// Current window size. This is required to properly bound cursor movement
 	// commands and implement line wrapping.
 	// It defaults to 160 columns * 100 lines.
@@ -60,6 +67,10 @@ type Screen struct {
 	// The line will always have a `\n` suffix.
 	// If both ScrollOutFunc and ScrollOutPlainFunc are set, only ScrollOutPlainFunc is used.
 	ScrollOutPlainFunc func(linePlain string)
+
+	// strict restricts input that could be abused on a page showing untrusted
+	// output; see WithStrict.
+	strict bool
 
 	// Timestamps controls whether timestamps are included in output.
 	// Defaults to true (timestamps included).
@@ -92,6 +103,16 @@ func WithMaxSize(maxCols, maxLines int) ScreenOption {
 		if maxLines > 0 {
 			s.lines = min(s.lines, maxLines)
 		}
+		return nil
+	}
+}
+
+// WithStrict hardens the screen for untrusted input: inline images (OSC 1337
+// and 1338) are dropped, and links (OSC 8 and 1339) are kept only for
+// absolute http(s) URLs; any other link renders as its plain text.
+func WithStrict() ScreenOption {
+	return func(s *Screen) error {
+		s.strict = true
 		return nil
 	}
 }
@@ -194,7 +215,7 @@ func (s *Screen) backward(i string) {
 // the window is always the bottom-most s.lines (or fewer) elements of s.screen.
 // top + s.y = the index of the line where the cursor is.
 func (s *Screen) top() int {
-	return max(0, len(s.screen)-s.lines)
+	return max(s.windowFloor, len(s.screen)-s.lines)
 }
 
 // currentLine returns the line the cursor is on, or nil if no such line has
@@ -298,6 +319,7 @@ func (s *Screen) currentLineForWriting() *screenLine {
 			s.nodeRecycling = append(s.nodeRecycling, s.screen[i].nodes[:0])
 		}
 		s.LinesScrolledOut += scrollOutTo
+		s.windowFloor = max(0, s.windowFloor-scrollOutTo)
 
 		var nodes []node
 		if r1 := len(s.nodeRecycling) - 1; r1 >= 0 {
@@ -494,18 +516,17 @@ func (s *Screen) applyEscape(code rune, instructions []string) {
 			}
 
 		case "2":
-			// 2: "erase entire display"
-			// Previous implementations performed this the same as ESC [3J,
-			// which also removes all "scroll-back".
-			for i := s.top(); i < len(s.screen); i++ {
-				s.screen[i].clearAll()
-			}
+			// 2: "erase entire display". A log viewer wants the history, so
+			// push the display into scrollback (as many terminals do) rather
+			// than erasing it: the window restarts below the existing output.
+			// The cursor row moves with it; CSI H can't be relied on to home
+			// it (see above), and output resuming after the old content beats
+			// a gap of blank lines.
+			s.windowFloor = len(s.screen)
+			s.y = 0
 
 		case "3":
-			// 3: "erase whole display including scroll-back buffer"
-			for i := range s.screen {
-				s.screen[i].clearAll()
-			}
+			// 3: "erase scrollback". Ignored: scrollback is the log.
 		}
 
 	case 'K': // Erase in Line: erases part of the line.
@@ -548,6 +569,42 @@ func (s *Screen) AsHTMLWithTimestamps(timestamps bool) string {
 
 	// For backwards compatibility the final newline is trimmed.
 	return strings.TrimSuffix(string(b), "\n")
+}
+
+// renderChunk is how much RenderHTML/RenderPlainText buffer between writes.
+const renderChunk = 64 << 10
+
+// RenderHTML writes the screen buffer as HTML to w, in chunks, without
+// building the whole document in memory. Output matches AsHTMLWithTimestamps.
+func (s *Screen) RenderHTML(w io.Writer, timestamps bool) error {
+	return s.render(w, func(b *outputBuffer, line []screenLine) { b.appendLine(line, timestamps) })
+}
+
+// RenderPlainText writes the screen buffer as plain text to w, in chunks.
+// Output matches AsPlainTextWithTimestamps.
+func (s *Screen) RenderPlainText(w io.Writer, timestamps bool) error {
+	return s.render(w, func(b *outputBuffer, line []screenLine) { b.WriteString(lineToPlain(line, timestamps)) })
+}
+
+func (s *Screen) render(w io.Writer, appendLine func(*outputBuffer, []screenLine)) error {
+	var b outputBuffer
+	for screen := s.screen; len(screen) > 0; {
+		n := logicalLineLen(screen)
+		appendLine(&b, screen[:n])
+		screen = screen[n:]
+		// Flush only while lines remain, so the final newline is always still
+		// buffered and can be trimmed below.
+		if len(b) >= renderChunk && len(screen) > 0 {
+			if _, err := w.Write(b); err != nil {
+				return err
+			}
+			b = b[:0]
+		}
+	}
+
+	// For backwards compatibility the final newline is trimmed.
+	_, err := w.Write(bytes.TrimSuffix(b, []byte("\n")))
+	return err
 }
 
 // AsPlainText renders the screen without any ANSI style etc.

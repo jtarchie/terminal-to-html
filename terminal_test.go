@@ -194,14 +194,24 @@ var rendererTestCases = []struct {
 		want:  "foobar",
 	},
 	{
-		name:  "allows clearing the entire window with ESC [2J",
-		input: "this is a big long bit of terminal output\nplease pay it no mind, we will clear it soon\nokay, get ready for a disappearing act...\nand...and...\n\n\x1b[2Jhey presto",
-		want:  "&nbsp;\n&nbsp;\n&nbsp;\n&nbsp;\n&nbsp;\nhey presto",
+		name:  "ESC [2J pushes the display into scrollback instead of erasing it",
+		input: "this is a big long bit of terminal output\nplease pay it no mind\n\n\x1b[2Jhey presto",
+		want:  "this is a big long bit of terminal output\nplease pay it no mind\nhey presto",
 	},
 	{
-		name:  "allows clearing the entire scrollback buffer with ESC [3J",
-		input: "this is a big long bit of terminal output\nplease pay it no mind, we will clear it soon\nokay, get ready for a disappearing act...\nand...and...\n\n\x1b[2Jhey presto",
-		want:  "&nbsp;\n&nbsp;\n&nbsp;\n&nbsp;\n&nbsp;\nhey presto",
+		name:  "clear(1)'s ESC [H ESC [2J ESC [3J keeps history",
+		input: "before\n\x1b[H\x1b[2J\x1b[3Jafter",
+		want:  "before\nafter",
+	},
+	{
+		name:  "cursor movement after ESC [2J can't reach the old display",
+		input: "old\n\x1b[2Jnew\x1b[5Ax",
+		want:  "old\nnewx",
+	},
+	{
+		name:  "ESC [2J history survives lines scrolling out",
+		input: strings.Repeat("a\n", 350) + "\x1b[2J" + strings.Repeat("b\n", 350) + "\x1b[2Jc\x1b[9Ad",
+		want:  strings.Repeat("a\n", 350) + strings.Repeat("b\n", 350) + "cd",
 	},
 	{
 		name:  "allows erasing the current line up to a point",

@@ -191,6 +191,25 @@ func (p *parser) processOperatingSystemCommand(end int) {
 	p.mode = parserModeNormal
 	element, err := parseElementSequence(string(p.buffer.slice(p.instructionStartedAt, end)))
 	// Errors are rendered into the screen (see below).
+	if p.screen.strict && element != nil {
+		switch element.elementType {
+		case elementImage, elementITermImage:
+			return
+		case elementITermLink:
+			if !strictURL(element.url) {
+				element.url = "" // ends any link in progress; text renders unlinked
+			}
+		case elementLink:
+			if !strictURL(element.url) {
+				text := element.content
+				if text == "" {
+					text = element.url
+				}
+				p.screen.appendMany([]rune(text))
+				return
+			}
+		}
+	}
 
 	if element == nil && err == nil {
 		// No element & no error, nothing to render
