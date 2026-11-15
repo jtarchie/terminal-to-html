@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/buildkite/terminal-to-html/v3"
-	"github.com/buildkite/terminal-to-html/v3/internal/assets"
-	"github.com/buildkite/terminal-to-html/v3/internal/rusage"
+	"github.com/jtarchie/terminal-to-html/v3"
+	"github.com/jtarchie/terminal-to-html/v3/internal/assets"
+	"github.com/jtarchie/terminal-to-html/v3/internal/rusage"
 	"github.com/urfave/cli/v2"
 )
 

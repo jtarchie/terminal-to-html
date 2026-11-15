@@ -55,11 +55,10 @@ Links which contain semicolons can be surrounded by either single or double quot
 
 ## Installation
 
-With Go installed, build from source into `$GOPATH/bin`:
+With Go installed, install the `terminal-to-html` command into `$GOPATH/bin`:
 
 ```bash
-$ git clone https://github.com/jtarchie/terminal-to-html
-$ cd terminal-to-html && go install ./cmd/terminal-to-html
+$ go install github.com/jtarchie/terminal-to-html/v3/cmd/terminal-to-html@latest
 ```
 
 ## Developing

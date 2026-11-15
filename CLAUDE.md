@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Go library + CLI (`github.com/buildkite/terminal-to-html/v3`) converting ANSI terminal output to HTML. Used by Buildkite to render job logs.
+Go library + CLI (`github.com/jtarchie/terminal-to-html/v3`) converting ANSI terminal output to HTML. Fork of `buildkite/terminal-to-html` (remote `upstream`); merge `upstream/main` to pick up their changes. Keep `LICENSE` and the README license section intact (MIT notice requirement).
 
 ## Commands
 
@@ -12,7 +12,7 @@ Go library + CLI (`github.com/buildkite/terminal-to-html/v3`) converting ANSI te
 - Bench: `make bench`. Sub-benchmarks `BenchmarkRender/<fixture>` and `BenchmarkStreaming/<fixture>` report MB/s and allocs; `npm.sh` matters most per README. Compare with `benchstat` over `-count 8`; wall time is noisy on a loaded machine, so A/B via interleaved runs of two `go test -c` binaries and trust allocs/op first.
 - Build binary: `make` (tests + `terminal-to-html` binary); cross-compile: `make dist`
 - Try it: `cat fixtures/pikachu.sh.raw | go run ./cmd/terminal-to-html -preview > out.html`
-- CI (`.buildkite/pipeline.yml`) runs test/bench/dist inside `docker-compose run terminal`.
+- No CI in this fork; `Dockerfile` runs `make dist`.
 
 CSS is `go:embed`ed from `internal/assets/terminal.css`.
 
