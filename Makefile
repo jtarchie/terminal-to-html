@@ -1,4 +1,4 @@
-SRC=*.go cmd/terminal-to-html/*.go
+SRC=*.go cmd/terminal-to-html/*.go internal/*/*
 BINARY=terminal-to-html
 BUILDCMD=CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o $@ ./cmd/terminal-to-html
 VERSION=$(shell cat version.go  | grep baseVersion | head -n1 | cut -d \" -f 2)
@@ -6,7 +6,7 @@ VERSION=$(shell cat version.go  | grep baseVersion | head -n1 | cut -d \" -f 2)
 all: test $(BINARY)
 
 bench:
-	go test -bench . -benchmem
+	go test -run '^$$' -bench . -benchmem
 
 test:
 	go test
@@ -14,9 +14,6 @@ test:
 clean:
 	rm -f $(BINARY)
 	rm -rf dist bin
-
-cmd/terminal-to-html/_bindata.go: assets/terminal.css
-	go-bindata -o cmd/terminal-to-html/bindata.go -nomemcopy assets
 
 $(BINARY): $(SRC)
 	$(BUILDCMD)

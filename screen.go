@@ -48,6 +48,8 @@ type Screen struct {
 	// recycled later on.
 	nodeRecycling [][]node
 
+	scrollOutBuf outputBuffer
+
 	// Optional callback. If not nil, as each line is scrolled out of the top of
 	// the buffer, this func is called with the HTML.
 	// The line will always have a `\n` suffix.
@@ -282,17 +284,14 @@ func (s *Screen) currentLineForWriting() *screenLine {
 				// the top of the window. Get the next line.
 				scrollOutTo = len(s.screen)
 			}
-			for i, l := range s.screen[:scrollOutTo] {
-				if l.newline {
-					scrollOutTo = i + 1
-					break
-				}
-			}
+			scrollOutTo = logicalLineLen(s.screen[:scrollOutTo])
 			if s.ScrollOutPlainFunc != nil {
 				s.ScrollOutPlainFunc(lineToPlain(s.screen[:scrollOutTo], s.Timestamps))
 			}
 			if s.ScrollOutFunc != nil {
-				s.ScrollOutFunc(lineToHTML(s.screen[:scrollOutTo], s.Timestamps))
+				s.scrollOutBuf = s.scrollOutBuf[:0]
+				s.scrollOutBuf.appendLine(s.screen[:scrollOutTo], s.Timestamps)
+				s.ScrollOutFunc(string(s.scrollOutBuf))
 			}
 		}
 		for i := range scrollOutTo {
@@ -340,15 +339,10 @@ func (s *Screen) write(data rune) {
 	s.x++
 }
 
-// Append a character to the screen
-func (s *Screen) append(data rune) {
-	s.write(data)
-}
-
 // Append multiple characters to the screen
 func (s *Screen) appendMany(data []rune) {
 	for _, char := range data {
-		s.append(char)
+		s.write(char)
 	}
 }
 
@@ -383,11 +377,6 @@ func (s *Screen) setLineMetadata(namespace string, data map[string]string) {
 
 	// copy new data over old data
 	maps.Copy(ns, data)
-}
-
-// Apply color instruction codes to the screen's current style
-func (s *Screen) color(i []string) {
-	s.style = s.style.color(i)
 }
 
 // Apply an escape sequence to the screen
@@ -531,13 +520,14 @@ func (s *Screen) applyEscape(code rune, instructions []string) {
 			s.currentLine().clearAll()
 		}
 
-	case 'M':
-		s.color(instructions)
+	case 'm':
+		s.style = s.style.color(instructions)
 	}
 }
 
 // Write writes ANSI text to the screen.
 func (s *Screen) Write(input []byte) (int, error) {
+	s.parser.screen = s // a copied Screen must not write into the original
 	s.parser.parseToScreen(input)
 	return len(input), nil
 }
@@ -549,54 +539,33 @@ func (s *Screen) AsHTML() string {
 
 // AsHTMLWithTimestamps returns the contents of the current screen buffer as HTML.
 func (s *Screen) AsHTMLWithTimestamps(timestamps bool) string {
-	var sb strings.Builder
-
-	screen := s.screen
-	for len(screen) > 0 {
-		// Find lineEnd of a line, or failing that, go to the end of the screen.
-		lineEnd := len(screen)
-		for i, l := range screen {
-			if l.newline {
-				lineEnd = i + 1
-				break
-			}
-		}
-		sb.WriteString(lineToHTML(screen[:lineEnd], timestamps))
-		screen = screen[lineEnd:]
+	var b outputBuffer
+	for screen := s.screen; len(screen) > 0; {
+		n := logicalLineLen(screen)
+		b.appendLine(screen[:n], timestamps)
+		screen = screen[n:]
 	}
 
 	// For backwards compatibility the final newline is trimmed.
-	return strings.TrimSuffix(sb.String(), "\n")
+	return strings.TrimSuffix(string(b), "\n")
 }
 
 // AsPlainText renders the screen without any ANSI style etc.
 func (s *Screen) AsPlainText() string {
-	var sb strings.Builder
-	for _, line := range s.screen {
-		sb.WriteString(line.asPlain())
-	}
-
-	// For backwards compatibility the final newline is trimmed.
-	return strings.TrimSuffix(sb.String(), "\n")
+	return s.AsPlainTextWithTimestamps(false)
 }
 
 // AsPlainTextWithTimestamps renders the screen as plain text, optionally
 // with UTC timestamp prefixes.
 func (s *Screen) AsPlainTextWithTimestamps(timestamps bool) string {
-	if !timestamps {
-		return s.AsPlainText()
+	var sb strings.Builder
+	for screen := s.screen; len(screen) > 0; {
+		n := logicalLineLen(screen)
+		sb.WriteString(lineToPlain(screen[:n], timestamps))
+		screen = screen[n:]
 	}
 
-	var sb strings.Builder
-	for i := 0; i < len(s.screen); {
-		// Find the end of this logical line.
-		lineEnd := i + 1
-		for lineEnd < len(s.screen) && !s.screen[lineEnd-1].newline {
-			lineEnd++
-		}
-		sb.WriteString(lineToPlain(s.screen[i:lineEnd], true))
-		i = lineEnd
-	}
+	// For backwards compatibility the final newline is trimmed.
 	return strings.TrimSuffix(sb.String(), "\n")
 }
 

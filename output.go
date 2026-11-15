@@ -1,60 +1,25 @@
 package terminal
 
 import (
+	"bytes"
 	"html"
-	"html/template"
-	"maps"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
-var (
-	timeTagImpl = template.Must(template.New("time").Parse(
-		`<time datetime="{{.}}">{{.}}</time>`,
-	))
+// []byte rather than strings.Builder so lines can be trimmed in place and the buffer reused.
+type outputBuffer []byte
 
-	openSpanTagTmpl = template.Must(template.New("span").Parse(
-		`<span class="{{.}}">`,
-	))
-)
-
-type outputBuffer struct {
-	strings.Builder
-}
-
-func (b *outputBuffer) appendNodeStyle(n node) {
-	openSpanTagTmpl.Execute(b, strings.Join(n.style.asClasses(), " "))
-}
-
-func (b *outputBuffer) closeStyle() {
-	b.WriteString("</span>")
-}
+func (b *outputBuffer) WriteString(s string) { *b = append(*b, s...) }
+func (b *outputBuffer) WriteRune(r rune)     { *b = utf8.AppendRune(*b, r) }
 
 func (b *outputBuffer) appendAnchor(url string) {
 	b.WriteString(`<a href="`)
 	b.WriteString(html.EscapeString(sanitizeURL(url)))
 	b.WriteString(`">`)
-}
-
-func (b *outputBuffer) closeAnchor() {
-	b.WriteString("</a>")
-}
-
-func (b *outputBuffer) appendMeta(namespace string, data map[string]string) {
-	// We only support the bk namespace and a well-formed millisecond epoch.
-	if namespace != bkNamespace {
-		return
-	}
-	millis, err := strconv.ParseInt(data["t"], 10, 64)
-	if err != nil {
-		return
-	}
-	time := time.Unix(millis/1000, (millis%1000)*1_000_000).UTC()
-	// One of the formats accepted by the <time> tag:
-	datetime := time.Format("2006-01-02T15:04:05.999Z")
-	timeTagImpl.Execute(b, datetime)
 }
 
 // Append a character to our outputbuffer, escaping HTML bits as necessary.
@@ -77,19 +42,45 @@ func (b *outputBuffer) appendChar(char rune) {
 	}
 }
 
-// lineToHTML joins parts of a line together and renders them in HTML. It
-// ignores the newline field (i.e. assumes all parts are !newline except the
-// last part). The output string will have a terminating \n.
-func lineToHTML(parts []screenLine, timestamps bool) string {
-	var buf outputBuffer
-
-	// Combine metadata - last metadata wins.
-	bkmd := make(map[string]string)
+// Last part's t wins.
+func lineTimestamp(parts []screenLine) (time.Time, bool) {
+	var t string
 	for _, l := range parts {
-		maps.Copy(bkmd, l.metadata[bkNamespace])
+		if v, ok := l.metadata[bkNamespace]["t"]; ok {
+			t = v
+		}
 	}
-	if timestamps && len(bkmd) > 0 {
-		buf.appendMeta(bkNamespace, bkmd)
+	millis, err := strconv.ParseInt(t, 10, 64)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return time.UnixMilli(millis).UTC(), true
+}
+
+// Wrapped screen lines (newline unset) continue the logical line.
+func logicalLineLen(lines []screenLine) int {
+	for i, l := range lines {
+		if l.newline {
+			return i + 1
+		}
+	}
+	return len(lines)
+}
+
+// Assumes all parts but the last are wrapped; output ends in \n.
+func (b *outputBuffer) appendLine(parts []screenLine, timestamps bool) {
+	start := len(*b)
+
+	if timestamps {
+		if ts, ok := lineTimestamp(parts); ok {
+			// One of the formats accepted by the <time> tag:
+			datetime := ts.Format("2006-01-02T15:04:05.999Z")
+			b.WriteString(`<time datetime="`)
+			b.WriteString(datetime)
+			b.WriteString(`">`)
+			b.WriteString(datetime)
+			b.WriteString(`</time>`)
+		}
 	}
 
 	// tagStack is used as a stack of open tags, so they can be closed in the
@@ -101,15 +92,13 @@ func lineToHTML(parts []screenLine, timestamps bool) string {
 		tagSpan
 	)
 
-	// Close tags in the stack, starting at idx. They're closed in the reverse
-	// order they were opened.
 	closeFrom := func(idx int) {
 		for i := len(tagStack) - 1; i >= idx; i-- {
 			switch tagStack[i] {
 			case tagAnchor:
-				buf.closeAnchor()
+				b.WriteString("</a>")
 			case tagSpan:
-				buf.closeStyle()
+				b.WriteString("</span>")
 			}
 		}
 		tagStack = tagStack[:idx]
@@ -121,7 +110,7 @@ func lineToHTML(parts []screenLine, timestamps bool) string {
 	for _, l := range parts {
 		for x, current := range l.nodes {
 			// A set of flags for which tags need changing.
-			tagChanged := []bool{
+			tagChanged := [...]bool{
 				// The anchor tag needs changing if the link "style" has changed,
 				// or if they are both links the link URLs are different.
 				// (Note that the x-1 index into the hyperlinks map returns "".)
@@ -132,9 +121,7 @@ func lineToHTML(parts []screenLine, timestamps bool) string {
 				tagSpan: !current.hasSameStyle(previous),
 			}
 
-			// Go forward through the stack of open tags, looking for the first
-			// tag we need to close (because it changed).
-			// If none are found, closeFromIdx will be past the end of the stack.
+			// HTML tags can't interleave, so closing a changed tag closes everything opened after it.
 			closeFromIdx := len(tagStack)
 			for i, ot := range tagStack {
 				if tagChanged[ot] {
@@ -143,84 +130,53 @@ func lineToHTML(parts []screenLine, timestamps bool) string {
 				}
 			}
 
-			// Close everything from that stack index onwards.
 			closeFrom(closeFromIdx)
 
-			// Now open new tags as needed.
-			// Open a new anchor tag, if one is not already open and this node is
-			// hyperlinked.
 			if !slices.Contains(tagStack, tagAnchor) && current.style.hyperlink() {
-				buf.appendAnchor(l.hyperlinks[x])
+				b.appendAnchor(l.hyperlinks[x])
 				tagStack = append(tagStack, tagAnchor)
 			}
-			// Open a new span tag, if one is not already open and this node has
-			// style.
+			// 24-bit colors have no class; skip the empty span.
 			if !slices.Contains(tagStack, tagSpan) && !current.style.isPlain() {
-				buf.appendNodeStyle(current)
-				tagStack = append(tagStack, tagSpan)
+				if classes := current.style.asClasses(); classes != "" {
+					b.WriteString(`<span class="`)
+					b.WriteString(classes)
+					b.WriteString(`">`)
+					tagStack = append(tagStack, tagSpan)
+				}
 			}
 
-			// Write a standalone element or a rune.
 			if current.style.element() {
-				buf.WriteString(l.elements[current.blob].asHTML())
+				b.WriteString(l.elements[current.blob].asHTML())
 			} else {
-				buf.appendChar(current.blob)
+				b.appendChar(current.blob)
 			}
 
 			previous = current
 		}
 	}
 
-	// Close any that are open, in reverse order that they were opened.
 	closeFrom(0)
 
-	out := strings.TrimRight(buf.String(), " \t")
-	if out == "" {
-		return "&nbsp;\n"
+	line := bytes.TrimRight((*b)[start:], " \t")
+	*b = (*b)[:start+len(line)]
+	if len(line) == 0 {
+		b.WriteString("&nbsp;")
 	}
-	out += "\n"
-	return out
+	b.WriteString("\n")
 }
 
-// asPlain returns the line contents without any added HTML.
-func (l *screenLine) asPlain() string {
-	var buf strings.Builder
-
-	for _, node := range l.nodes {
-		if !node.style.element() {
-			buf.WriteRune(node.blob)
-		}
-	}
-
-	line := buf.String()
-	if l.newline {
-		line = strings.TrimRight(line, " \t") + "\n"
-	}
-	return line
-}
-
-// lineToPlain joins parts of a line together and renders them as plain text,
-// optionally with a UTC timestamp prefix. The output string will have a
-// terminating \n.
+// Plain-text twin of appendLine.
 func lineToPlain(parts []screenLine, timestamps bool) string {
 	var buf strings.Builder
 
 	if timestamps {
-		// Combine metadata - last metadata wins.
-		bkmd := make(map[string]string)
-		for _, l := range parts {
-			maps.Copy(bkmd, l.metadata[bkNamespace])
-		}
-		if t, ok := bkmd["t"]; ok {
-			if millis, err := strconv.ParseInt(t, 10, 64); err == nil {
-				ts := time.Unix(millis/1000, (millis%1000)*1_000_000).UTC()
-				buf.WriteString(ts.Format("2006-01-02T15:04:05Z"))
-				buf.WriteString(" ")
-			}
+		if ts, ok := lineTimestamp(parts); ok {
+			buf.WriteString(ts.Format("2006-01-02T15:04:05Z"))
+			buf.WriteString(" ")
 		}
 	}
 
-	// Render the text content.
 	for _, l := range parts {
 		for _, node := range l.nodes {
 			if !node.style.element() {
@@ -229,10 +185,5 @@ func lineToPlain(parts []screenLine, timestamps bool) string {
 		}
 	}
 
-	line := buf.String()
-	line = strings.TrimRight(line, " \t")
-	if line == "" && !timestamps {
-		return "\n"
-	}
-	return line + "\n"
+	return strings.TrimRight(buf.String(), " \t") + "\n"
 }

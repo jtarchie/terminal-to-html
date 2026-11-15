@@ -11,11 +11,12 @@ const bkNamespace = "bk"
 // Parse an Application Program Command sequence, which may or may not be a
 // Buildkite APC, e.g. bk;t=123123234234234;llamas=blah
 func (p *parser) parseBuildkiteAPC(sequence string) (map[string]string, error) {
-	if !strings.HasPrefix(sequence, bkNamespace+";") {
+	rest, ok := strings.CutPrefix(sequence, bkNamespace+";")
+	if !ok {
 		return nil, nil
 	}
 
-	tokens, err := tokenizeString(sequence[3:], ';', '\\')
+	tokens, err := tokenizeString(rest, ';', '\\')
 	if err != nil {
 		return nil, err
 	}

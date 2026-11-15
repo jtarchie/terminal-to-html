@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -434,6 +435,41 @@ var rendererTestCases = []struct {
 			`<time datetime="1970-01-01T00:00:00.456Z">1970-01-01T00:00:00.456Z</time>another line!`,
 		}, "\n"),
 	},
+	{
+		name:  "24-bit colors followed by more parameters",
+		input: "\x1b[38;2;1;2;3;1mbold\x1b[0m \x1b[48;2;1;2;3;4munder",
+		want:  `<span class="term-fg1">bold</span> <span class="term-fg4">under</span>`,
+	},
+	{
+		name:  "24-bit color replaces an earlier color and emits no empty span",
+		input: "\x1b[31m\x1b[38;2;1;2;3mhi",
+		want:  "hi",
+	},
+	{
+		name:  "CSI final bytes are case-sensitive",
+		input: "ab\x1b[4hc\x1b[2Md\x1b[1de\x1b[cf",
+		want:  "abcdef",
+	},
+	{
+		name:  "CSI f is cursor position",
+		input: "abc\x1b[1;2fX",
+		want:  "abc\n X",
+	},
+	{
+		name:  "CSI H with omitted row keeps the column",
+		input: "abc\x1b[;5HX",
+		want:  "abc\n    X",
+	},
+	{
+		name:  "ESC before a multi-byte rune keeps the rune",
+		input: "a\x1b€b\x1b[1€c",
+		want:  "a€b[1€c",
+	},
+	{
+		name:  "OSC 8 URL containing a semicolon",
+		input: "\x1b]8;;http://example.com/a;b\x1b\\link\x1b]8;;\x1b\\",
+		want:  `<a href="http://example.com/a;b">link</a>`,
+	},
 }
 
 func TestRendererAgainstCases(t *testing.T) {
@@ -528,59 +564,58 @@ func TestScreenWriteToXY(t *testing.T) {
 	}
 }
 
-func BenchmarkRendererBuildahBuild(b *testing.B) { benchmarkRender("buildah-build.sh", b) }
-func BenchmarkRendererControl(b *testing.B)      { benchmarkRender("control.sh", b) }
-func BenchmarkRendererCurl(b *testing.B)         { benchmarkRender("curl.sh", b) }
-func BenchmarkRendererHomer(b *testing.B)        { benchmarkRender("homer.sh", b) }
-func BenchmarkRendererITermLinks(b *testing.B)   { benchmarkRender("itermlinks.sh", b) }
-func BenchmarkRendererDockerPull(b *testing.B)   { benchmarkRender("docker-pull.sh", b) }
-func BenchmarkRendererPikachu(b *testing.B)      { benchmarkRender("pikachu.sh", b) }
-func BenchmarkRendererPlaywright(b *testing.B)   { benchmarkRender("playwright.sh", b) }
-func BenchmarkRendererPowershell(b *testing.B)   { benchmarkRender("pwsh.sh", b) }
-func BenchmarkRendererRustFmt(b *testing.B)      { benchmarkRender("rustfmt.sh", b) }
-func BenchmarkRendererWeather(b *testing.B)      { benchmarkRender("weather.sh", b) }
-func BenchmarkRendererNpm(b *testing.B)          { benchmarkRender("npm.sh", b) }
-
-func BenchmarkRendererDockerComposePull(b *testing.B) {
-	benchmarkRender("docker-compose-pull.sh", b)
-}
-
-func benchmarkRender(filename string, b *testing.B) {
-	raw := loadFixture(b, filename, "raw")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = Render(raw)
+// io.Copy and network reads split escapes and multi-byte runes across Writes.
+func TestChunkedWritesAgainstFixtures(t *testing.T) {
+	for _, base := range TestFiles {
+		raw := loadFixture(t, base, "raw")
+		want := string(loadFixture(t, base, "rendered"))
+		for _, size := range []int{1, 2, 3, 7, 4093} {
+			t.Run(fmt.Sprintf("%s/%d", base, size), func(t *testing.T) {
+				s, err := NewScreen()
+				if err != nil {
+					t.Fatalf("NewScreen() error = %v", err)
+				}
+				for chunk := range slices.Chunk(raw, size) {
+					s.Write(chunk)
+				}
+				if diff := cmp.Diff(s.AsHTML(), want); diff != "" {
+					t.Errorf("chunked render diff (-got +want):\n%s", diff)
+				}
+			})
+		}
 	}
 }
 
-func BenchmarkStreamingBuildahBuild(b *testing.B) { benchmarkStreaming("buildah-build.sh", b) }
-func BenchmarkStreamingControl(b *testing.B)      { benchmarkStreaming("control.sh", b) }
-func BenchmarkStreamingCurl(b *testing.B)         { benchmarkStreaming("curl.sh", b) }
-func BenchmarkStreamingHomer(b *testing.B)        { benchmarkStreaming("homer.sh", b) }
-func BenchmarkStreamingITermLinks(b *testing.B)   { benchmarkStreaming("itermlinks.sh", b) }
-func BenchmarkStreamingDockerPull(b *testing.B)   { benchmarkStreaming("docker-pull.sh", b) }
-func BenchmarkStreamingPikachu(b *testing.B)      { benchmarkStreaming("pikachu.sh", b) }
-func BenchmarkStreamingPlaywright(b *testing.B)   { benchmarkStreaming("playwright.sh", b) }
-func BenchmarkStreamingPowershell(b *testing.B)   { benchmarkStreaming("pwsh.sh", b) }
-func BenchmarkStreamingRustFmt(b *testing.B)      { benchmarkStreaming("rustfmt.sh", b) }
-func BenchmarkStreamingWeather(b *testing.B)      { benchmarkStreaming("weather.sh", b) }
-func BenchmarkStreamingNpm(b *testing.B)          { benchmarkStreaming("npm.sh", b) }
-
-func BenchmarkStreamingDockerComposePull(b *testing.B) {
-	benchmarkStreaming("docker-compose-pull.sh", b)
+// npm.sh is the one to watch (see Readme); compare -count 8 runs with benchstat.
+func BenchmarkRender(b *testing.B) {
+	for _, base := range TestFiles {
+		b.Run(base, func(b *testing.B) {
+			raw := loadFixture(b, base, "raw")
+			b.SetBytes(int64(len(raw)))
+			b.ReportAllocs()
+			for b.Loop() {
+				Render(raw)
+			}
+		})
+	}
 }
 
-func benchmarkStreaming(filename string, b *testing.B) {
-	raw := loadFixture(b, filename, "raw")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		s, err := NewScreen(WithMaxSize(-1, 300))
-		if err != nil {
-			b.Fatalf("NewScreen(WithMaxSize(-1, 300)) error = %v", err)
-		}
-		// Set a non-nil scroll out func to exercise the codepath.
-		s.ScrollOutFunc = func(line string) {}
-		s.Write(raw)
-		_ = s.AsHTML()
+func BenchmarkStreaming(b *testing.B) {
+	for _, base := range append(TestFiles, "huge-line.sh") {
+		b.Run(base, func(b *testing.B) {
+			raw := loadFixture(b, base, "raw")
+			b.SetBytes(int64(len(raw)))
+			b.ReportAllocs()
+			for b.Loop() {
+				s, err := NewScreen(WithMaxSize(-1, 300))
+				if err != nil {
+					b.Fatalf("NewScreen(WithMaxSize(-1, 300)) error = %v", err)
+				}
+				// Set a non-nil scroll out func to exercise the codepath.
+				s.ScrollOutFunc = func(string) {}
+				s.Write(raw)
+				s.AsHTML()
+			}
+		})
 	}
 }

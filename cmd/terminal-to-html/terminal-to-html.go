@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -90,10 +91,11 @@ func webservice(listen string, preview bool, screen *terminal.Screen) {
 		// > Request.Body.
 		// However, it lets us provide Content-Length in all cases.
 		b := bytes.NewBuffer(nil)
-		if _, _, err := process(b, r.Body, preview, "html", false, &screen); err != nil {
+		if _, _, err := process(b, r.Body, preview, "html", &screen); err != nil {
 			log.Printf("error starting preview: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			fmt.Fprint(w, "Error creating preview.")
+			return
 		}
 
 		w.Header().Set("Content-Type", "text/html")
@@ -170,20 +172,33 @@ func logStats(start time.Time, in, out int, s *terminal.Screen) {
 type writeCounter struct {
 	out     io.Writer
 	counter int
+	err     error // first write error; ScrollOutFunc has no way to return it
 }
 
 func (wc *writeCounter) Write(b []byte) (int, error) {
+	if wc.err != nil {
+		return 0, wc.err
+	}
 	n, err := wc.out.Write(b)
 	wc.counter += n
+	wc.err = err
 	return n, err
 }
 
-func (wc *writeCounter) WriteString(s string) { wc.Write([]byte(s)) }
+func (wc *writeCounter) WriteString(s string) {
+	if wc.err != nil {
+		return
+	}
+	n, err := io.WriteString(wc.out, s)
+	wc.counter += n
+	wc.err = err
+}
 
 // process streams the src through a terminal renderer to the dst.
-func process(dst io.Writer, src io.Reader, preview bool, format string, timestamps bool, screen *terminal.Screen) (in, out int, err error) {
-	// Wrap dst in writeCounter to count bytes written
-	wc := &writeCounter{out: dst}
+func process(dst io.Writer, src io.Reader, preview bool, format string, screen *terminal.Screen) (in, out int, err error) {
+	// Scrolled-out lines arrive one at a time; buffer them rather than a write per line.
+	bw := bufio.NewWriterSize(dst, 64*1024)
+	wc := &writeCounter{out: bw}
 
 	if preview {
 		if err := writePreviewStart(wc); err != nil {
@@ -192,7 +207,6 @@ func process(dst io.Writer, src io.Reader, preview bool, format string, timestam
 	}
 
 	// Attach the scrollout callback before streaming input.
-	screen.Timestamps = timestamps
 	if format == "html" {
 		screen.ScrollOutFunc = wc.WriteString
 	} else {
@@ -201,21 +215,28 @@ func process(dst io.Writer, src io.Reader, preview bool, format string, timestam
 
 	inBytes, err := io.Copy(screen, src)
 	if err != nil {
+		bw.Flush() // keep the output produced so far
 		return int(inBytes), wc.counter, fmt.Errorf("read input into screen buffer: %w", err)
 	}
 
 	// Write what remains in the screen buffer (everything that didn't scroll
 	// out of the top).
 	if format == "plain" {
-		wc.WriteString(screen.AsPlainTextWithTimestamps(timestamps))
+		wc.WriteString(screen.AsPlainTextWithTimestamps(screen.Timestamps))
 	} else {
-		wc.WriteString(screen.AsHTMLWithTimestamps(timestamps))
+		wc.WriteString(screen.AsHTMLWithTimestamps(screen.Timestamps))
 	}
 
 	if preview {
 		if err := writePreviewEnd(wc); err != nil {
 			return int(inBytes), wc.counter, fmt.Errorf("write end of preview: %w", err)
 		}
+	}
+	if wc.err != nil {
+		return int(inBytes), wc.counter, fmt.Errorf("write output: %w", wc.err)
+	}
+	if err := bw.Flush(); err != nil {
+		return int(inBytes), wc.counter, fmt.Errorf("write output: %w", err)
 	}
 	return int(inBytes), wc.counter, nil
 }
@@ -279,9 +300,10 @@ func main() {
 			return fmt.Errorf("invalid format %q: must be 'html' or 'plain'", format)
 		}
 
+		// WithMaxSize last so it clamps, e.g. --buffer-max-lines 50 vs default --window-lines 100.
 		screen, err := terminal.NewScreen(
-			terminal.WithMaxSize(c.Int("window-max-cols"), c.Int("buffer-max-lines")),
 			terminal.WithSize(c.Int("window-cols"), c.Int("window-lines")),
+			terminal.WithMaxSize(c.Int("window-max-cols"), c.Int("buffer-max-lines")),
 		)
 		if err != nil {
 			return fmt.Errorf("creating screen: %w", err)
@@ -307,7 +329,7 @@ func main() {
 			input = f
 		}
 
-		in, out, err := process(os.Stdout, input, c.Bool("preview"), format, !c.Bool("no-timestamps"), screen)
+		in, out, err := process(os.Stdout, input, c.Bool("preview"), format, screen)
 		if err != nil {
 			return err
 		}

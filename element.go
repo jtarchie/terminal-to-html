@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"mime"
+	"path"
 	"strings"
 )
 
@@ -93,17 +94,13 @@ func parseElementSequence(sequence string) (*element, error) {
 	elem := &element{content: content, elementType: elementType}
 
 	if elementType == elementITermLink {
-		// For "iTerm" links (OSC 8), tokens[0] is params and tokens[1] is the URL.
-		// Aside from not quoting the URL, we ignore params.
-		// The link "content" comes after the element and is stored
-		// as regular text in the screen line, because they are designed to gracefully
-		// degrade to plain text if the sequence isn't supported.
-		tokens := strings.Split(args, ";")
-		if len(tokens) != 2 {
+		// OSC 8 args are params;URL and the URL may contain ';'. Link text follows as plain text so it degrades gracefully.
+		_, url, ok := strings.Cut(args, ";")
+		if !ok {
 			// Probably malformed
 			return nil, nil
 		}
-		elem.url = tokens[1]
+		elem.url = url
 		return elem, nil
 	}
 
@@ -128,7 +125,7 @@ func parseElementSequence(sequence string) (*element, error) {
 				return nil, fmt.Errorf("name= value of %q is not valid base64", val)
 			}
 			elem.url = string(nameBytes)
-			elem.contentType = contentTypeForFile(elem.url)
+			elem.contentType = mime.TypeByExtension(path.Ext(elem.url))
 		case "url":
 			elem.url = val
 		case "content":
@@ -163,14 +160,6 @@ func parseElementSequence(sequence string) (*element, error) {
 		elem = nil
 	}
 	return elem, nil
-}
-
-func contentTypeForFile(filename string) string {
-	dot := strings.LastIndex(filename, ".")
-	if dot == -1 {
-		return ""
-	}
-	return mime.TypeByExtension(filename[dot:])
 }
 
 func parseImageDimension(s string) string {

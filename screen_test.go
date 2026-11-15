@@ -13,25 +13,25 @@ var currentLineForWritingTestCases = []struct {
 	maxlines int
 }{
 	{
-		name: "Test no index out of range panic",
-		input: "\n",
-		want: []string{"&nbsp;\n"},
+		name:     "Test no index out of range panic",
+		input:    "\n",
+		want:     []string{"&nbsp;\n"},
 		maxlines: 1,
 	},
 	{
-		name: "Test scroll out first line",
-		input: "a\n",
-		want: []string{"a\n"},
+		name:     "Test scroll out first line",
+		input:    "a\n",
+		want:     []string{"a\n"},
 		maxlines: 1,
 	},
 	{
-		name: "Test scroll out several lines",
-		input: "a\nb\nc\nd",
-		want: []string{"a\n", "b\n"},
+		name:     "Test scroll out several lines",
+		input:    "a\nb\nc\nd",
+		want:     []string{"a\n", "b\n"},
 		maxlines: 2,
 	},
 	{
-		name: "Test cursor past the end then line change",
+		name:  "Test cursor past the end then line change",
 		input: "\nabcdefghijklmnopqrstuvwxyz1234567890_-=.abcdefghijklmnopqrstuvwxyz1234567890_-=.abcdefghijklmnopqrstuvwxyz1234567890_-=.abcdefghijklmnopqrstuvwxyz1234567890_-=.\x1b[Aa\n\n\n",
 		want: []string{
 			"                                                                                                                                                               a\n",
@@ -58,5 +58,21 @@ func TestCurrentLineForWriting(t *testing.T) {
 				t.Errorf("scrolledOutFunc sequence of parameters diff (-got +want):\n%s", diff)
 			}
 		})
+	}
+}
+
+// The CLI's HTTP mode copies a template Screen per request.
+func TestCopiedScreenWritesToCopy(t *testing.T) {
+	orig, err := NewScreen()
+	if err != nil {
+		t.Fatalf("NewScreen() error = %v", err)
+	}
+	cp := *orig
+	cp.Write([]byte("hello"))
+	if got := cp.AsHTML(); got != "hello" {
+		t.Errorf("copy.AsHTML() = %q, want %q", got, "hello")
+	}
+	if got := orig.AsHTML(); got != "" {
+		t.Errorf("original.AsHTML() = %q, want empty", got)
 	}
 }

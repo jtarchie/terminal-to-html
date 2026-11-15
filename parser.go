@@ -1,9 +1,6 @@
 package terminal
 
-import (
-	"unicode"
-	"unicode/utf8"
-)
+import "unicode/utf8"
 
 const (
 	parserModeNormal = iota
@@ -90,7 +87,12 @@ func (p *parser) parseToScreen(input []byte) {
 	for p.cursor < p.buffer.len() {
 		// UTF-8 runes are 1-4 bytes, so slice ahead +4.
 		charBytes := p.buffer.slice(p.cursor, min(p.cursor+4, p.buffer.len()))
+		if !utf8.FullRune(charBytes) {
+			// ponytail: a partial rune at EOF is never flushed (was U+FFFD); add a Flush/Close if that matters.
+			break // rune split across Writes; decode it once the rest arrives
+		}
 		char, charLen := utf8.DecodeRune(charBytes)
+		at := p.cursor
 
 		switch p.mode {
 		case parserModeEscape:
@@ -126,20 +128,18 @@ func (p *parser) parseToScreen(input []byte) {
 			p.handleNormal(char)
 		}
 
-		p.cursor += charLen
+		if p.cursor == at {
+			p.cursor += charLen
+		} else {
+			p.cursor++ // rewound to the ESC of an abandoned sequence: skip the 1-byte ESC, not charLen
+		}
 	}
 
-	// If we're in normal mode, everything up to the cursor has been procesed.
-	if p.mode == parserModeNormal {
-		p.cursor = 0
-		p.remainder = p.remainder[:0]
-		return
+	// Copy the unprocessed tail: io.Writer must not retain input.
+	done := p.cursor
+	if p.mode != parserModeNormal {
+		done = p.escapeStartedAt
 	}
-
-	// We're in the middle of an escape, only everything up to p.escapeStartedAt
-	// has been processed. The remainder sits at the end of input, which we
-	// don't want to retain (see io.Writer docs), so copy it using append.
-	done := p.escapeStartedAt
 	p.remainder = append(p.remainder[:0], p.buffer.slice(done, p.buffer.len())...)
 
 	// Adjust the buffer indices accordingly.
@@ -299,25 +299,28 @@ func (p *parser) processApplicationProgramCommand(end int) {
 // handleControlSequence is called for each character consumed while in
 // parserModeControl.
 func (p *parser) handleControlSequence(char rune) {
-	char = unicode.ToUpper(char)
+	// Case-sensitive: CSI m is SGR but CSI M is delete-line; CSI h is set-mode but CSI H is CUP.
 	switch char {
 	case '?', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		// Part of an instruction
 
 	case ';':
 		p.addInstruction()
-		p.instructionStartedAt = p.cursor + utf8.RuneLen(';')
+		p.instructionStartedAt = p.cursor + 1
 
-	case 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'M', 'Q':
+	case 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'm':
 		p.addInstruction()
 		p.screen.applyEscape(char, p.instructions)
 		p.mode = parserModeNormal
 
-	case 'I', 'L', 'N':
-		// CSI i: Enable/disable AUX port
-		// CSI L: Set/reset mode (SM/RM)
-		// CSI n: Report cursor position
-		// All not relevant to us. Swallow the code and continue
+	case 'f': // HVP: same as CUP (CSI H)
+		p.addInstruction()
+		p.screen.applyEscape('H', p.instructions)
+		p.mode = parserModeNormal
+
+	case 'a', 'b', 'c', 'd', 'e', 'g', 'h', 'i', 'j', 'k', 'l', 'n', 'q',
+		'I', 'L', 'M', 'N', 'Q':
+		// Valid but unimplemented; swallow rather than print the sequence.
 		p.mode = parserModeNormal
 
 	default:
@@ -340,7 +343,7 @@ func (p *parser) handleNormal(char rune) {
 		p.escapeStartedAt = p.cursor
 		p.mode = parserModeEscape
 	default:
-		p.screen.append(char)
+		p.screen.write(char)
 	}
 }
 
@@ -348,20 +351,20 @@ func (p *parser) handleNormal(char rune) {
 func (p *parser) handleEscape(char rune) {
 	switch char {
 	case '[':
-		p.instructionStartedAt = p.cursor + utf8.RuneLen('[')
-		p.instructions = make([]string, 0, 1)
+		p.instructionStartedAt = p.cursor + 1
+		p.instructions = p.instructions[:0]
 		p.mode = parserModeControl
 
 	case ']':
-		p.instructionStartedAt = p.cursor + utf8.RuneLen('[')
+		p.instructionStartedAt = p.cursor + 1
 		p.mode = parserModeOSC
 
 	case ')', '(':
-		p.instructionStartedAt = p.cursor + utf8.RuneLen('(')
+		p.instructionStartedAt = p.cursor + 1
 		p.mode = parserModeCharset
 
 	case '_':
-		p.instructionStartedAt = p.cursor + utf8.RuneLen('[')
+		p.instructionStartedAt = p.cursor + 1
 		p.mode = parserModeAPC
 
 	case 'M':
@@ -391,13 +394,9 @@ func (p *parser) handleEscape(char rune) {
 	}
 }
 
-// addInstruction appends an instruction to p.instructions, if the current
-// instruction is nonempty.
+// Empty parameters are kept so positions hold, e.g. CSI ;5H is column 5.
 func (p *parser) addInstruction() {
-	instruction := string(p.buffer.slice(p.instructionStartedAt, p.cursor))
-	if instruction != "" {
-		p.instructions = append(p.instructions, instruction)
-	}
+	p.instructions = append(p.instructions, string(p.buffer.slice(p.instructionStartedAt, p.cursor)))
 }
 
 // join provides a way to slice across consecutive []bytes. Copying happens at
