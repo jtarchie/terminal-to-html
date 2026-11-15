@@ -191,6 +191,9 @@ func (p *parser) processOperatingSystemCommand(end int) {
 	p.mode = parserModeNormal
 	element, err := parseElementSequence(string(p.buffer.slice(p.instructionStartedAt, end)))
 	// Errors are rendered into the screen (see below).
+	if p.screen.strict && err != nil {
+		return // the error line would echo input-controlled text
+	}
 	if p.screen.strict && element != nil {
 		switch element.elementType {
 		case elementImage, elementITermImage:

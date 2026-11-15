@@ -48,31 +48,45 @@
 .term-fgi94 { color: #6871ff; } /* blue */
 .term-fgi95 { color: #ff76ff; } /* magenta */
 .term-fgi96 { color: #60fcff; } /* cyan */
+.term-fgi97 { color: #ffffff; } /* white */
 
 /* background colors */
 .term-bg40 { background: #676767; } /* grey */
 .term-bg41 { background: #ff4343; } /* red */
 .term-bg42 { background: #99ff5f; } /* green */
+.term-bg43 { background: #c6c502; } /* yellow */
+.term-bg44 { background: #3e7bd6; } /* blue */
+.term-bg45 { background: #d14ed8; } /* magenta */
+.term-bg46 { background: #3cc8d0; } /* cyan */
+.term-bg47 { background: #e5e5e5; } /* white */
+.term-bgi100 { background: #838887; } /* bright black */
+.term-bgi101 { background: #ff3333; } /* bright red */
+.term-bgi102 { background: #00ff00; } /* bright green */
+.term-bgi103 { background: #fffc67; } /* bright yellow */
+.term-bgi104 { background: #6871ff; } /* bright blue */
+.term-bgi105 { background: #ff76ff; } /* bright magenta */
+.term-bgi106 { background: #60fcff; } /* bright cyan */
+.term-bgi107 { background: #ffffff; } /* bright white */
 
 /* custom foreground/background combos for readability */
 .term-fg31.term-bg40 { color: #F8A39F; }
 
-/* xterm colors */
-.term-fgx0 { color: #000000; }
-.term-fgx1 { color: #800000; }
-.term-fgx2 { color: #008000; }
-.term-fgx3 { color: #808000; }
-.term-fgx4 { color: #000080; }
-.term-fgx5 { color: #800080; }
-.term-fgx6 { color: #008080; }
-.term-fgx7 { color: #c0c0c0; }
-.term-fgx8 { color: #808080; }
-.term-fgx9 { color: #ff0000; }
-.term-fgx10 { color: #00ff00; }
-.term-fgx11 { color: #ffff00; }
-.term-fgx12 { color: #0000ff; }
-.term-fgx13 { color: #ff00ff; }
-.term-fgx14 { color: #00ffff; }
+/* xterm colors; 0-15 are the 16 basic colors, so reuse that palette */
+.term-fgx0 { color: #666666; }
+.term-fgx1 { color: #ff7070; }
+.term-fgx2 { color: #b0f986; }
+.term-fgx3 { color: #c6c502; }
+.term-fgx4 { color: #8db7e0; }
+.term-fgx5 { color: #f271fb; }
+.term-fgx6 { color: #6bf7ff; }
+.term-fgx7 { color: #ffffff; }
+.term-fgx8 { color: #838887; }
+.term-fgx9 { color: #ff3333; }
+.term-fgx10 { color: #00FF00; }
+.term-fgx11 { color: #fffc67; }
+.term-fgx12 { color: #6871ff; }
+.term-fgx13 { color: #ff76ff; }
+.term-fgx14 { color: #60fcff; }
 .term-fgx15 { color: #ffffff; }
 .term-fgx16 { color: #000000; }
 .term-fgx17 { color: #00005f; }
@@ -316,21 +330,21 @@
 .term-fgx255 { color: #eeeeee; }
 
 /* xterm background colors */
-.term-bgx0 { background: #000000; }
-.term-bgx1 { background: #800000; }
-.term-bgx2 { background: #008000; }
-.term-bgx3 { background: #808000; }
-.term-bgx4 { background: #000080; }
-.term-bgx5 { background: #800080; }
-.term-bgx6 { background: #008080; }
-.term-bgx7 { background: #c0c0c0; }
-.term-bgx8 { background: #808080; }
-.term-bgx9 { background: #ff0000; }
+.term-bgx0 { background: #676767; }
+.term-bgx1 { background: #ff4343; }
+.term-bgx2 { background: #99ff5f; }
+.term-bgx3 { background: #c6c502; }
+.term-bgx4 { background: #3e7bd6; }
+.term-bgx5 { background: #d14ed8; }
+.term-bgx6 { background: #3cc8d0; }
+.term-bgx7 { background: #e5e5e5; }
+.term-bgx8 { background: #838887; }
+.term-bgx9 { background: #ff3333; }
 .term-bgx10 { background: #00ff00; }
-.term-bgx11 { background: #ffff00; }
-.term-bgx12 { background: #0000ff; }
-.term-bgx13 { background: #ff00ff; }
-.term-bgx14 { background: #00ffff; }
+.term-bgx11 { background: #fffc67; }
+.term-bgx12 { background: #6871ff; }
+.term-bgx13 { background: #ff76ff; }
+.term-bgx14 { background: #60fcff; }
 .term-bgx15 { background: #ffffff; }
 .term-bgx16 { background: #000000; }
 .term-bgx17 { background: #00005f; }

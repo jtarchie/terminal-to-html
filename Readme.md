@@ -15,7 +15,7 @@ It provides a single command, `terminal-to-html`, that can be used to convert te
 > displaying in a browser.
 >
 > Strict mode (`-strict`, or `terminal.WithStrict()` in Go) narrows the attack surface for
-> untrusted input: inline images are dropped and links are kept only for absolute `http(s)` URLs.
+> untrusted input: inline images and malformed element sequences are dropped, and links are kept only for absolute `http(s)` URLs.
 > Text is always HTML-escaped. It has not been externally audited; sanitize anyway if it matters.
 
 Piping in terminal output via the command line:

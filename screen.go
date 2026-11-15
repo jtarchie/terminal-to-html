@@ -108,7 +108,7 @@ func WithMaxSize(maxCols, maxLines int) ScreenOption {
 }
 
 // WithStrict hardens the screen for untrusted input: inline images (OSC 1337
-// and 1338) are dropped, and links (OSC 8 and 1339) are kept only for
+// and 1338) and malformed element sequences are dropped, and links (OSC 8 and 1339) are kept only for
 // absolute http(s) URLs; any other link renders as its plain text.
 func WithStrict() ScreenOption {
 	return func(s *Screen) error {
@@ -210,10 +210,7 @@ func (s *Screen) backward(i string) {
 	}
 }
 
-// top returns the index within s.screen where the window begins.
-// The top of the window is not necessarily the top of the buffer: in fact,
-// the window is always the bottom-most s.lines (or fewer) elements of s.screen.
-// top + s.y = the index of the line where the cursor is.
+// top + s.y = cursor's buffer index; the window is the last s.lines lines but never starts above windowFloor.
 func (s *Screen) top() int {
 	return max(s.windowFloor, len(s.screen)-s.lines)
 }
@@ -275,14 +272,10 @@ func (s *Screen) currentLineForWriting() *screenLine {
 				nodes:   nodes,
 				newline: true,
 			}
+			top := s.top()
 			s.screen = append(s.screen, newLine)
-			if s.y >= s.lines {
-				// Because the "window" is always the last s.lines of s.screen
-				// (or all of them, if there are fewer lines than s.lines)
-				// appending a new line shifts the window down. In that case,
-				// compensate by shifting s.y up (eventually to within bounds).
-				s.y--
-			}
+			// The window only moves once full and past windowFloor; y-- regardless dropped blank lines.
+			s.y -= s.top() - top
 			continue
 		}
 
@@ -523,7 +516,12 @@ func (s *Screen) applyEscape(code rune, instructions []string) {
 			// The cursor row moves with it; CSI H can't be relied on to home
 			// it (see above), and output resuming after the old content beats
 			// a gap of blank lines.
+			cur := s.top() + s.y
 			s.windowFloor = len(s.screen)
+			if cur == len(s.screen)-1 && len(s.screen[cur].nodes) == 0 {
+				// Likely holds the bk timestamp sent just before the clear; keep it for the next output.
+				s.windowFloor = cur
+			}
 			s.y = 0
 
 		case "3":
@@ -561,15 +559,9 @@ func (s *Screen) AsHTML() string {
 
 // AsHTMLWithTimestamps returns the contents of the current screen buffer as HTML.
 func (s *Screen) AsHTMLWithTimestamps(timestamps bool) string {
-	var b outputBuffer
-	for screen := s.screen; len(screen) > 0; {
-		n := logicalLineLen(screen)
-		b.appendLine(screen[:n], timestamps)
-		screen = screen[n:]
-	}
-
-	// For backwards compatibility the final newline is trimmed.
-	return strings.TrimSuffix(string(b), "\n")
+	var sb strings.Builder
+	_ = s.RenderHTML(&sb, timestamps) // strings.Builder never fails
+	return sb.String()
 }
 
 // renderChunk is how much RenderHTML/RenderPlainText buffer between writes.
@@ -617,14 +609,8 @@ func (s *Screen) AsPlainText() string {
 // with UTC timestamp prefixes.
 func (s *Screen) AsPlainTextWithTimestamps(timestamps bool) string {
 	var sb strings.Builder
-	for screen := s.screen; len(screen) > 0; {
-		n := logicalLineLen(screen)
-		sb.WriteString(lineToPlain(screen[:n], timestamps))
-		screen = screen[n:]
-	}
-
-	// For backwards compatibility the final newline is trimmed.
-	return strings.TrimSuffix(sb.String(), "\n")
+	_ = s.RenderPlainText(&sb, timestamps) // strings.Builder never fails
+	return sb.String()
 }
 
 func (s *Screen) newLine() {

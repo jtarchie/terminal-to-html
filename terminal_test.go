@@ -214,6 +214,21 @@ var rendererTestCases = []struct {
 		want:  strings.Repeat("a\n", 350) + strings.Repeat("b\n", 350) + "cd",
 	},
 	{
+		name:  "more blank lines than the window height are all kept",
+		input: "a\n" + strings.Repeat("\n", 105) + "b",
+		want:  "a\n" + strings.Repeat("&nbsp;\n", 105) + "b",
+	},
+	{
+		name:  "more blank lines than the window height after ESC [2J are all kept",
+		input: strings.Repeat("line\n", 213) + "\x1b[2J" + strings.Repeat("\n", 250) + "www",
+		want:  strings.Repeat("line\n", 213) + strings.Repeat("&nbsp;\n", 250) + "www",
+	},
+	{
+		name:  "bk timestamp sent before ESC [2J stays on the next line",
+		input: "\x1b_bk;t=1000\x07a\n\x1b_bk;t=2000\x07\x1b[2Jb",
+		want:  `<time datetime="1970-01-01T00:00:01Z">1970-01-01T00:00:01Z</time>a` + "\n" + `<time datetime="1970-01-01T00:00:02Z">1970-01-01T00:00:02Z</time>b`,
+	},
+	{
 		name:  "allows erasing the current line up to a point",
 		input: "hello friend\x1b[1K!",
 		want:  "            !",

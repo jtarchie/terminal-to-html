@@ -19,34 +19,24 @@ func (w *countingWriter) Write(p []byte) (int, error) {
 	return w.Builder.Write(p)
 }
 
-func TestRenderMatchesAs(t *testing.T) {
-	for _, base := range TestFiles {
-		t.Run(base, func(t *testing.T) {
-			s, err := NewScreen()
-			if err != nil {
-				t.Fatal(err)
-			}
-			s.Write(loadFixture(t, base, "raw"))
+// TestRenderHTMLChunks: a large fixture is written in several chunks and the
+// joined result is still the golden output.
+func TestRenderHTMLChunks(t *testing.T) {
+	s, err := NewScreen()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Write(loadFixture(t, "npm.sh", "raw"))
 
-			for _, timestamps := range []bool{true, false} {
-				var html, plain countingWriter
-				if err := s.RenderHTML(&html, timestamps); err != nil {
-					t.Fatal(err)
-				}
-				if diff := cmp.Diff(html.String(), s.AsHTMLWithTimestamps(timestamps)); diff != "" {
-					t.Errorf("RenderHTML(%v) diff (-got +want):\n%s", timestamps, diff)
-				}
-				if err := s.RenderPlainText(&plain, timestamps); err != nil {
-					t.Fatal(err)
-				}
-				if diff := cmp.Diff(plain.String(), s.AsPlainTextWithTimestamps(timestamps)); diff != "" {
-					t.Errorf("RenderPlainText(%v) diff (-got +want):\n%s", timestamps, diff)
-				}
-				if base == "npm.sh" && html.writes < 2 {
-					t.Errorf("npm.sh: RenderHTML wrote %d chunks, want several", html.writes)
-				}
-			}
-		})
+	var w countingWriter
+	if err := s.RenderHTML(&w, true); err != nil {
+		t.Fatal(err)
+	}
+	if w.writes < 2 {
+		t.Errorf("RenderHTML wrote %d chunks, want several", w.writes)
+	}
+	if diff := cmp.Diff(w.String(), string(loadFixture(t, "npm.sh", "rendered"))); diff != "" {
+		t.Errorf("diff (-got +want):\n%s", diff)
 	}
 }
 
@@ -82,6 +72,11 @@ func TestStrict(t *testing.T) {
 		{
 			name:  "1338 image dropped",
 			input: "a\x1b]1338;url=https://example.com/x.png\ab",
+			want:  "ab",
+		},
+		{
+			name:  "malformed element dropped, not echoed as an error line",
+			input: "a\x1b]1338;nourl=<b>x</b>\ab",
 			want:  "ab",
 		},
 		{
